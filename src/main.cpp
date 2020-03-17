@@ -10,6 +10,7 @@
 #include <ArduinoJson.h>  //https://arduinojson.org/v6/assistant/
 #include <MillisTimer.h>
 #include <string>
+#include <pogchamp.h>
 
 #ifndef TFT_DISPOFF
 #define TFT_DISPOFF 0x28
@@ -75,7 +76,14 @@ uint16_t GetTeamColor (std::string teamName);
 void setup() {
   tft.init();
   tft.setRotation(1);
-
+  tft.setTextDatum(TL_DATUM);
+  tft.setSwapBytes(true);
+  tft.pushImage(0, 0,  SCREEN_HEIGHT, SCREEN_WIDTH, pogchamp);
+  tft.setFreeFont(&FreeSans9pt7b);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString("Domination", 140, 70);
+  tft.drawString("Tracker", 140, 100);
+  delay(5000);
   Serial.begin(115200);
 
   DrawTextCentered("Starting");
@@ -210,7 +218,7 @@ void UpdateDisplay() {
   tft.drawString( voltageText , 0 , SCREEN_HEIGHT );
 
   // Team Info
-  int padding = 100; //tft.textWidth("Team: 9999", );
+  int padding = 120; //tft.textWidth("Team: 9999", );
   tft.setTextPadding(padding);
   tft.setTextDatum(TL_DATUM);
   tft.setFreeFont(&FreeSans18pt7b);
