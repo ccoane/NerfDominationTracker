@@ -1,4 +1,6 @@
-# NerfDominationTracker
+# NerfDominationTracker - Very much still a WIP
+
+[![Video](https://img.youtube.com/vi/8_mOT_Istnk/0.jpg)](https://www.youtube.com/watch?v=8_mOT_Istnk)
 
 Steps:
 - Install PlatformIO
