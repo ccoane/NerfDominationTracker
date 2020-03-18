@@ -32,8 +32,13 @@
 #define BUTTON_1              35
 #define BUTTON_2              0
 
+// Supposed dimensions
 #define SCREEN_HEIGHT         135
 #define SCREEN_WIDTH          240
+// #define SCREEN_HEIGHT         120
+// #define SCREEN_WIDTH          230
+
+#define POINTS_TO_WIN            20
 
 TFT_eSPI tft = TFT_eSPI(SCREEN_HEIGHT, SCREEN_WIDTH);
 Button2 btn1(BUTTON_1);
@@ -69,13 +74,14 @@ void DrawTextCentered(String text);
 void UpdateStatus(MillisTimer &mt);
 void UpdateDisplay();
 void SetTeamValuesFromJson (String jsonVal);
-uint16_t GetTeamColor (std::string teamName);
+uint16_t GetTeamColor (const char *teamName, bool isForProgressBar);
 
 ////////////////////////////////////////////////////////  Setup & Loop  //////////////////////////////////////////////////////// 
 
 void setup() {
   tft.init();
   tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(TL_DATUM);
   tft.setSwapBytes(true);
   tft.pushImage(0, 0,  SCREEN_HEIGHT, SCREEN_WIDTH, pogchamp);
@@ -83,7 +89,7 @@ void setup() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("Domination", 140, 70);
   tft.drawString("Tracker", 140, 100);
-  delay(5000);
+  delay(3000);
   Serial.begin(115200);
 
   DrawTextCentered("Starting");
@@ -159,12 +165,10 @@ void UpdateStatus(MillisTimer &mt) {
     if (httpCode > 0) { //Check for the returning code
  
         String payload = http.getString();
-        Serial.println(httpCode);
-        Serial.println(payload);
+        // Serial.println(httpCode);
+        // Serial.println(payload);
         SetTeamValuesFromJson(payload);
         UpdateDisplay();
-        // tft.setCursor(0,0);
-        // tft.println(payload);
       }
  
     else {
@@ -181,10 +185,6 @@ void UpdateStatus(MillisTimer &mt) {
 void SetTeamValuesFromJson (String jsonVal) {
   const size_t capacity = JSON_ARRAY_SIZE(4) + JSON_OBJECT_SIZE(1) + 4*JSON_OBJECT_SIZE(4) + 280;
   DynamicJsonDocument doc(capacity);
-
-  // const char* json = "{\"Teams\":[{\"teamName\":\"Red\",\"isActive\":false,\"timerStartedAt\":null,\"elapsedTimeInSeconds\":0},{\"teamName\":\"Blue\",\"isActive\":false,\"timerStartedAt\":null,\"elapsedTimeInSeconds\":0},{\"teamName\":\"Green\",\"isActive\":false,\"timerStartedAt\":null,\"elapsedTimeInSeconds\":0},{\"teamName\":\"Yellow\",\"isActive\":false,\"timerStartedAt\":null,\"elapsedTimeInSeconds\":0}]}";
-
-  // deserializeJson(doc, json);
   
   deserializeJson(doc, jsonVal);
 
@@ -193,52 +193,112 @@ void SetTeamValuesFromJson (String jsonVal) {
   for (int i = 0 ; i < sizeOfTeamsAllowed; i++) {
     teams[i] = {};  // Clear out object just in case-ies'
     JsonObject Team = Teams[i];
-    teams[i].teamName = Team["teamName"];
-    teams[i].isActive = Team["isActive"];
-    teams[i].elapsedTimeInSeconds = Team["elapsedTimeInSeconds"];
-    Serial.println(String(teams[i].teamName));
-    Serial.println(String(teams[i].elapsedTimeInSeconds));
+    if (true) {
+      teams[i].teamName = Team["teamName"];
+      teams[i].isActive = Team["isActive"];
+      teams[i].elapsedTimeInSeconds = Team["elapsedTimeInSeconds"];
+      // Serial.println(String(teams[i].teamName));
+      // Serial.println(String(teams[i].elapsedTimeInSeconds));
+    }
   }
 }
 
 void UpdateDisplay() {
-  // // Clear Display
-  // tft.fillScreen(TFT_BLACK);
+  // Domination Name
+  tft.setTextDatum(TL_DATUM);
+  tft.setFreeFont(&FreeSansBoldOblique12pt7b);
+  tft.setTextColor(TFT_WHITE);
+  tft.drawString( "DOMINATION" , 0 , 0 );
 
   // Voltage
   double voltage = GetVoltage();
   if (voltage > 3.7) {
-    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
   } else {
     tft.setTextColor(TFT_RED, TFT_BLACK);
   }
   String voltageText = String(voltage) + "v";
+  tft.setTextDatum(TR_DATUM);
   tft.setFreeFont(&FreeSans9pt7b);
-  tft.setTextPadding(50);
-  tft.drawString( voltageText , 0 , SCREEN_HEIGHT );
+  tft.setTextSize(1);
+  int padding = tft.textWidth("99.9v", GFXFF); // get the width of the text in pixels
+  tft.setTextPadding(padding);
+  tft.drawString( voltageText , SCREEN_WIDTH , 0 );
 
   // Team Info
-  int padding = 120; //tft.textWidth("Team: 9999", );
-  tft.setTextPadding(padding);
-  tft.setTextDatum(TL_DATUM);
-  tft.setFreeFont(&FreeSans18pt7b);
   for (int i =0 ; i < 2 ; i++){
-    String displayText = " " + String(teams[i].teamName) + " " + String(teams[i].elapsedTimeInSeconds) + " ";
-    
-    std::string s;
-    s.append(teams[i].teamName);
-    
-    tft.setTextColor(GetTeamColor(s),TFT_BLACK);
-    tft.drawString(displayText, 0, (40*i) + 5);
+    String teamName = teams[i].teamName;
+    if (teamName.length() > 0) {
+      
+      // Progress Bar Background
+      tft.fillRect( SCREEN_WIDTH *.05 , ( SCREEN_HEIGHT * .30 ) + (i * 32 ), SCREEN_WIDTH * .9, 30, GetTeamColor(teams[i].teamName, false));
+
+      // Progress Bar Begin/Mids/End Pieces
+      tft.fillRect( SCREEN_WIDTH *.05 , ( SCREEN_HEIGHT * .30 ) + (i * 32 ), SCREEN_WIDTH * .025, 30, GetTeamColor(teams[i].teamName, true));
+      tft.fillRect( SCREEN_WIDTH *.50 , ( SCREEN_HEIGHT * .30 ) + (i * 32 ), SCREEN_WIDTH * .025, 30, GetTeamColor(teams[i].teamName, true));
+      tft.fillRect( SCREEN_WIDTH *.80 , ( SCREEN_HEIGHT * .30 ) + (i * 32 ), SCREEN_WIDTH * .025, 30, GetTeamColor(teams[i].teamName, true));
+      tft.fillRect( SCREEN_WIDTH *.95 , ( SCREEN_HEIGHT * .30 ) + (i * 32 ), SCREEN_WIDTH * .025, 30, GetTeamColor(teams[i].teamName, true));
+
+      // Progress Bar
+      double teamPoints = teams[i].elapsedTimeInSeconds; 
+
+      double ProgressBarEndLocation = SCREEN_WIDTH *.05 + SCREEN_WIDTH * .025;          // 18.00
+      double ProgressBarStartLocation = SCREEN_WIDTH *.50;                              // 120.00
+      double ProgressBarTotalSize = ProgressBarStartLocation - ProgressBarEndLocation;  // 102.00
+      double ProgressBarStartLocationUpdate = ProgressBarStartLocation - (ProgressBarTotalSize * (teamPoints / POINTS_TO_WIN ));
+      double ProgressBarStartLocationUpdateWidth = (ProgressBarStartLocationUpdate - ProgressBarStartLocation) * -1;
+      tft.fillRect( ProgressBarStartLocationUpdate , ( SCREEN_HEIGHT * .30 ) + ( i * 32 ), ProgressBarStartLocationUpdateWidth , 30 , GetTeamColor( teams[i].teamName, true ) );
+
+      // Number on top of Progress Bar
+      tft.setTextDatum(BC_DATUM);
+      tft.setFreeFont(&FreeSans12pt7b);
+      tft.setTextColor(TFT_WHITE);
+      padding = tft.textWidth("999", GFXFF); // get the width of the text in pixels
+      tft.setTextPadding(padding);
+      tft.drawString( String( (int) teamPoints ) , ( SCREEN_WIDTH * .50 ) * .90 , ( SCREEN_HEIGHT * .50 ) + (i * 32 ) );
+
+      // Team Letter
+      tft.setFreeFont(&FreeSansBoldOblique12pt7b);
+      tft.setTextColor(TFT_WHITE);
+      padding = tft.textWidth("R", GFXFF); // get the width of the text in pixels
+      tft.setTextPadding(padding);
+      tft.drawString( String(teams[i].teamName[0]) , SCREEN_WIDTH  * .88 , ( SCREEN_HEIGHT * .50 ) + (i * 32 ) );
+    }
   }
-  
+
+  // Game Mode Info Bottom Bar
+  tft.setTextDatum(BC_DATUM);
+  // padding = tft.textWidth("300 Points to Win | Domination", GFXFF); // get the width of the text in pixels
+  padding = tft.textWidth("300 Points to Win", GFXFF); // get the width of the text in pixels
+  tft.setTextPadding(padding);
+  tft.setFreeFont(&FreeSans9pt7b);
+  tft.setTextSize(.50);
+  tft.setTextColor(TFT_WHITE);
+  // String bottomRowText = String(POINTS_TO_WIN) + " Points to Win | Domination";
+  String bottomRowText = String(POINTS_TO_WIN) + " Points to Win";
+  tft.drawString( bottomRowText , SCREEN_WIDTH *.5 , SCREEN_HEIGHT );
 }
 
-uint16_t GetTeamColor (std::string teamName) {
-    if (teamName.find("Red") != std::string::npos) {
+// tft.setTextColor(GetTeamColor(teams[i].teamName),TFT_BLACK);
+uint16_t GetTeamColor (const char *teamName, bool isForProgressBar) {
+  std::string cstr;
+  cstr.append(teamName);
+  if (cstr.find("Red") != std::string::npos) {
+    if (isForProgressBar) {
       return TFT_RED;
-    } else if (teamName.find("Blue") != std::string::npos) {
+    } else {
+      return TFT_MAROON;
+    }
+  } else if (cstr.find("Blue") != std::string::npos) {
+    if (isForProgressBar) {
       return TFT_BLUE;
-    } 
-    return TFT_YELLOW;
-  }
+    } else {
+      return TFT_NAVY;
+    }
+  } 
+  String teamNamestr = String(teamName);
+  int nameLength = teamNamestr.length();
+  Serial.println ("Drawing yellow for a team: " + String(teamName));
+  Serial.println ("Length: " + String(nameLength));
+  return TFT_YELLOW;
+}
