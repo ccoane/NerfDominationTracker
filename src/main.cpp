@@ -197,7 +197,13 @@ void SetTeamValuesFromJson (String jsonVal) {
   const size_t capacity = JSON_ARRAY_SIZE(4) + JSON_OBJECT_SIZE(1) + 4*JSON_OBJECT_SIZE(4) + 280;
   DynamicJsonDocument doc(capacity);
   
-  deserializeJson(doc, jsonVal);
+  DeserializationError deserializationError = deserializeJson(doc, jsonVal);
+  
+  // Test if deserialization failed.
+  if (deserializationError) {
+    Serial.println("deserialization failed");
+    return;
+  }
 
   ElapsedGameTimeFormatted = doc["ElapsedGameTimeFormatted"];
   JsonArray Teams = doc["Teams"];
@@ -221,11 +227,6 @@ void SetTeamValuesFromJson (String jsonVal) {
 }
 
 void UpdateDisplay() {
-  // Domination Name
-  // tft.setTextDatum(TL_DATUM);
-  // tft.setFreeFont(&FreeSansBoldOblique12pt7b);
-  // tft.setTextColor(TFT_WHITE);
-  // tft.drawString( "DOMINATION" , SCREEN_WIDTH *.05 , 0 );
 
   // Voltage
   double voltage = GetVoltage();
