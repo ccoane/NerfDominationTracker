@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include "WiFi.h"
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <Button2.h>
@@ -18,6 +17,15 @@
 #include <GothamBook_7.h>
 #include <GothamBook_9.h>
 #include <GothamBook_12.h>
+#include <ESP_WiFiManager.h>
+#include <esp_wifi.h>
+#include <WiFi.h>
+#include <WiFiClient.h>
+
+#define ESP_getChipId()   ((uint32_t)ESP.getEfuseMac())
+
+#define LED_ON      HIGH
+#define LED_OFF     LOW
 
 #ifndef TFT_DISPOFF
 #define TFT_DISPOFF 0x28
@@ -57,8 +65,16 @@ int btnCick = false;
 
 HTTPClient http;
 
-const char* ssid = WIFI_SSID;
-const char* password =  WIFI_PASSWD;
+// const char* ssidLocal = WIFI_SSID;
+// const char* passwordLocal =  WIFI_PASSWD;
+
+// SSID and PW for Config Portal
+String apStationSSID = "ESP_" + String(ESP_getChipId());
+const char* apStationPassword = "1234567890";
+
+// SSID and PW for your Router
+String Router_SSID;
+String Router_Pass;
 
 String baseUrl = "http://nerf-data-api-dfw.herokuapp.com/koth";
 String urlStatus = "/status";
@@ -76,7 +92,7 @@ const char* ElapsedGameTimeFormatted = "";
 #define sizeOfTeamsAllowed 4
 JsonTeamStruct teams[sizeOfTeamsAllowed];
 
-MillisTimer statusTimer = MillisTimer(1000);
+MillisTimer statusTimer = MillisTimer(500);
 
 ////////////////////////////////////////////////////////  Function Declerations  //////////////////////////////////////////////////////// 
 void ConnectToNetwork(); 
@@ -88,6 +104,7 @@ void UpdateStatus(MillisTimer &mt);
 void UpdateDisplay();
 void SetTeamValuesFromJson (String jsonVal);
 uint16_t GetTeamColor (const char *teamName, bool isForProgressBar);
+void StartWifiConfigManager() ;
 
 ////////////////////////////////////////////////////////  Setup & Loop  //////////////////////////////////////////////////////// 
 
@@ -107,7 +124,8 @@ void setup() {
 
   DrawTextCentered("Starting");
 
-  ConnectToNetwork();
+  // ConnectToNetwork();
+  StartWifiConfigManager();
   statusTimer.expiredHandler(UpdateStatus);
   statusTimer.start();
   tft.fillScreen(TFT_BLACK);
@@ -119,20 +137,90 @@ void loop() {
 
 ////////////////////////////////////////////////////////  Functions Implementations //////////////////////////////////////////////////////// 
 
-void ConnectToNetwork() {
-  WiFi.begin(ssid, password);
+void StartWifiConfigManager() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  int padding = tft.textWidth("The Quick Brown Fox", GFXFF); // get the width of the text in pixels
+  tft.setTextPadding(padding);
+  tft.setFreeFont(&GothamLight9pt7b);
+  tft.setTextColor(TFT_WHITE);
+  tft.drawString("Connect to", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .00);
+  tft.drawString("AP: " + apStationSSID, SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .20);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    String connectingText = "Connecting to " + String(ssid);
-    Serial.println(connectingText);
-    DrawTextCentered (connectingText);
-    // delay(500);
+  ESP_WiFiManager ESP_wifiManager;
+  
+  Router_SSID = ESP_wifiManager.WiFi_SSID();
+  Router_Pass = ESP_wifiManager.WiFi_Pass();
+
+  tft.drawString("Saved Auto Connect SSID:", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .50);
+  tft.drawString("SSIDstr: " + Router_SSID, SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .75);
+
+  //Remove this line if you do not want to see WiFi password printed
+  Serial.println("Stored: SSID = " + Router_SSID + ", Pass = " + Router_Pass);
+ 
+  // For some unknown reason webserver can only be started once per boot up 
+  // so webserver can not be used again in the sketch.
+  #define WIFI_CONNECT_TIMEOUT        15000L
+  #define WHILE_LOOP_DELAY            200L
+  #define WHILE_LOOP_STEPS            (WIFI_CONNECT_TIMEOUT / ( 3 * WHILE_LOOP_DELAY ))
+  
+  unsigned long startedAt = millis();
+  
+  while ( (WiFi.status() != WL_CONNECTED) && (millis() - startedAt < WIFI_CONNECT_TIMEOUT ) )
+  {   
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent (true);
+    // We start by connecting to a WiFi network
+  
+    Serial.print("Connecting to ");
+    Serial.println(Router_SSID);
+  
+    WiFi.begin(Router_SSID.c_str(), Router_Pass.c_str());
+
+    int i = 0;
+    while((!WiFi.status() || WiFi.status() >= WL_DISCONNECTED) && i++ < WHILE_LOOP_STEPS)
+    {
+      delay(WHILE_LOOP_DELAY);
+    }    
   }
-  String connectedText = "Connected to " + String(ssid);
-  Serial.println(connectedText);
-  DrawTextCentered (connectedText);
-  // espDelay(2000);
+
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  } else {
+    if (Router_SSID != "")
+    {
+      ESP_wifiManager.setConfigPortalTimeout(60); //If no access point name has been previously entered disable timeout.
+      Serial.println("Timeout 60s");
+    }
+    else
+      Serial.println("No timeout");
+
+    // SSID to uppercase 
+    apStationSSID.toUpperCase();  
+
+    //it starts an access point 
+    //and goes into a blocking loop awaiting configuration
+    if (!ESP_wifiManager.startConfigPortal()) 
+      Serial.println("Not connected to WiFi but continuing anyway.");
+    else 
+      Serial.println("WiFi connected...yeey :)");
+  }
 }
+
+// void ConnectToNetwork() {
+//   WiFi.begin(ssidLocal, passwordLocal);
+
+//   while (WiFi.status() != WL_CONNECTED) {
+//     String connectingText = "Connecting to " + String(ssid);
+//     Serial.println(connectingText);
+//     DrawTextCentered (connectingText);
+//     // delay(500);
+//   }
+//   String connectedText = "Connected to " + String(ssid);
+//   Serial.println(connectedText);
+//   DrawTextCentered (connectedText);
+//   // espDelay(2000);
+// }
 
 double GetVoltage () {
   // static uint64_t timeStamp = 0;
@@ -189,7 +277,7 @@ void UpdateStatus(MillisTimer &mt) {
     http.end(); //Free the resources
   } else {
     Serial.println("No HTTP for some reason");
-    ConnectToNetwork();
+    // ConnectToNetwork();
   }
 }
 
@@ -309,7 +397,6 @@ void UpdateDisplay() {
   // Game Mode Info Bottom Bar
   tft.setTextDatum(BC_DATUM);
   padding = tft.textWidth("999 Points to Win | Domination", GFXFF); // get the width of the text in pixels
-  // padding = tft.textWidth("999 Points to Win", GFXFF); // get the width of the text in pixels
   tft.setTextPadding(padding);
   tft.setFreeFont(&GothamLight9pt7b);
   tft.setTextColor(TFT_WHITE);
