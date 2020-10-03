@@ -6,7 +6,7 @@ Steps:
 * Install PlatformIO
 * Download Library "TFT_eSPI"
 * Navigate to the TFT_eSPI Library folder in your users directory
-  * In Windows, this would be C:\Users\YOUR_USERNAME\.platformio\lib\TFT_eSPI_restOfFolderName
+  * In Windows, this would be C:\Users\YOUR_USERNAME\\.platformio\lib\TFT_eSPI_restOfFolderName
 * Make the following changes to the User_Setup_Select.h file:
   * Comment out "#include <User_Setup.h>"
   * Uncomment "#include <User_Setups/Setup25_TTGO_T_Display.h>"
