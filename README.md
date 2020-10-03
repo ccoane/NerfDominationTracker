@@ -11,4 +11,5 @@ Steps:
   * Comment out "#include <User_Setup.h>"
   * Uncomment "#include <User_Setups/Setup25_TTGO_T_Display.h>"
   * Save Settings
-* Don't track changes on the WiFiCredentials file:  git update-index --assume-unchanged WifiCredentials.h
+* Don't track changes on the WiFiCredentials file:  
+  * git update-index --assume-unchanged WifiCredentials.h
