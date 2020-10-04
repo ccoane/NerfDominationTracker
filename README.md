@@ -3,6 +3,7 @@
 [![Video](https://img.youtube.com/vi/8_mOT_Istnk/0.jpg)](https://www.youtube.com/watch?v=8_mOT_Istnk)
 
 Steps:
+* Install VS Code
 * Install PlatformIO
 * Download Library "TFT_eSPI"
 * Navigate to the TFT_eSPI Library folder in your users directory
