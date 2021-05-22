@@ -5,20 +5,21 @@
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <Button2.h>
-#include <Free_Fonts.h>
 #include <WifiCredentials.h>
 #include <ArduinoJson.h>  //https://arduinojson.org/v6/assistant/
 #include <MillisTimer.h>
 #include <string>
-#include <pogchamp.h>
-#include <triangle.h>
-#include <AWinnerIsYou.h>
-#include <GothamLight_7.h>
-#include <GothamLight_9.h>
-#include <GothamLight_12.h>
-#include <GothamBook_7.h>
-#include <GothamBook_9.h>
-#include <GothamBook_12.h>
+#include <Media\pogchamp.h>
+#include <Media\triangle.h>
+#include <Media\AWinnerIsYou.h>
+#include <Media\MarioSleep.h>
+#include <Fonts\Free_Fonts.h>
+#include <Fonts\GothamLight_7.h>
+#include <Fonts\GothamLight_9.h>
+#include <Fonts\GothamLight_12.h>
+#include <Fonts\GothamBook_7.h>
+#include <Fonts\GothamBook_9.h>
+#include <Fonts\GothamBook_12.h>
 #include <ESP_WiFiManager.h>
 #include <esp_wifi.h>
 #include <WiFi.h>
@@ -26,40 +27,40 @@
 
 #define ESP_getChipId()   ((uint32_t)ESP.getEfuseMac())
 
-#define LED_ON      HIGH
-#define LED_OFF     LOW
+#define LED_ON HIGH
+#define LED_OFF LOW
 
 #ifndef TFT_DISPOFF
 #define TFT_DISPOFF 0x28
 #endif
 
 #ifndef TFT_SLPIN
-#define TFT_SLPIN   0x10
+#define TFT_SLPIN 0x10
 #endif
 
-#define TFT_MOSI              19
-#define TFT_SCLK              18
-#define TFT_CS                5
-#define TFT_DC                16
-#define TFT_RST               23
+#define TFT_MOSI 19
+#define TFT_SCLK 18
+#define TFT_CS 5
+#define TFT_DC 16
+#define TFT_RST 23
 
-#define TFT_BL                4  // Display backlight control pin
-#define ADC_EN                14
-#define ADC_PIN               34
-#define BUTTON_1              35
-#define BUTTON_2              0
+#define TFT_BL 4 // Display backlight control pin
+#define ADC_EN 14
+#define ADC_PIN 34
+#define BUTTON_1 35
+#define BUTTON_2 0
 
 // Supposed dimensions
-#define SCREEN_HEIGHT         135
-#define SCREEN_WIDTH          240
-// #define SCREEN_HEIGHT         120
-// #define SCREEN_WIDTH          230
+#define SCREEN_HEIGHT 135
+#define SCREEN_WIDTH 240
 
 int pointsToWin = 20;
 
 TFT_eSPI tft = TFT_eSPI(SCREEN_HEIGHT, SCREEN_WIDTH);
 Button2 btn1(BUTTON_1);
 Button2 btn2(BUTTON_2);
+
+auto MarioSleepGif = { MarioSleep_00,MarioSleep_01,MarioSleep_02,MarioSleep_03,MarioSleep_04,MarioSleep_05,MarioSleep_06,MarioSleep_07,MarioSleep_08,MarioSleep_09,MarioSleep_10,MarioSleep_11 };
 
 char buff[512];
 int vref = 1100;
@@ -79,6 +80,7 @@ String Router_SSID;
 String Router_Pass;
 
 String baseUrl = "http://nerf-data-api-dfw.herokuapp.com/koth";
+// String baseUrl = "http://192.168.10.10:3000/koth";
 String urlStatus = "/status";
 String urlStopTimers = "/stopTimers";
 
@@ -95,23 +97,30 @@ const char* ElapsedGameTimeFormatted = "";
 JsonTeamStruct teams[sizeOfTeamsAllowed];
 
 MillisTimer statusTimer = MillisTimer(500);
+MillisTimer postGameTimer = MillisTimer(60000);
 
 ////////////////////////////////////////////////////////  Function Declerations  //////////////////////////////////////////////////////// 
 void ConnectToNetwork(); 
 double GetVoltage();
 void espDelay(int ms);
+void button_init();
+void button_loop();
 
 void DrawTextCentered(String text);
 void UpdateStatus(MillisTimer &mt);
+void SetDisplayToSleepExpired(MillisTimer &mt);
 void UpdateDisplay();
 void SetTeamValuesFromJson (String jsonVal);
 uint16_t GetTeamColor (const char *teamName, bool isForProgressBar);
 void StartWifiConfigManager() ;
 void DisplayWinnerScreen (String teamWinner, const char *ElapsedGameTimeFormatted);
+void SetDisplayToSleep();
 
 ////////////////////////////////////////////////////////  Setup & Loop  //////////////////////////////////////////////////////// 
 
 void setup() {
+  Serial.begin(115200);
+  Serial.println("STARTED");
   tft.init();
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
@@ -122,8 +131,11 @@ void setup() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("Domination", 140, 70);
   tft.drawString("Tracker", 140, 100);
-  delay(3000);
-  Serial.begin(115200);
+  button_init();
+  for (int i = 0 ; i < 1500 ; i ++) {
+    Serial.println("checking button");
+    button_loop();
+  }
 
   DrawTextCentered("Starting");
 
@@ -131,11 +143,13 @@ void setup() {
   StartWifiConfigManager();
   statusTimer.expiredHandler(UpdateStatus);
   statusTimer.start();
+  postGameTimer.expiredHandler(SetDisplayToSleepExpired);
   tft.fillScreen(TFT_BLACK);
 }
  
 void loop() {
   statusTimer.run();
+  button_loop();
 }
 
 ////////////////////////////////////////////////////////  Functions Implementations //////////////////////////////////////////////////////// 
@@ -189,9 +203,16 @@ void StartWifiConfigManager() {
     }    
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED && !btnCick) {
     return;
   } else {
+    if (btnCick) {
+      tft.fillScreen(TFT_BLACK);
+      tft.drawString("Connect to AP:", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .00);
+      tft.drawString(apStationSSID, SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .20);
+      tft.drawString("Manual WiFi Config", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .50);
+      tft.drawString("is Activated", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .75);
+    }
     if (Router_SSID != "")
     {
       ESP_wifiManager.setConfigPortalTimeout(60); //If no access point name has been previously entered disable timeout.
@@ -212,34 +233,39 @@ void StartWifiConfigManager() {
   }
 }
 
-// void ConnectToNetwork() {
-//   WiFi.begin(ssidLocal, passwordLocal);
+void button_init()
+{
+    btn1.setLongClickHandler([](Button2 & b) {
+        btnCick = false;
+        unsigned int time = b.wasPressedFor();
+        if (time > 3000) {
+          SetDisplayToSleep();
+        }
+    });
+    btn1.setPressedHandler([](Button2 & b) {
+        Serial.println("Detect Voltage..");
+        btnCick = true;
+    });
 
-//   while (WiFi.status() != WL_CONNECTED) {
-//     String connectingText = "Connecting to " + String(ssid);
-//     Serial.println(connectingText);
-//     DrawTextCentered (connectingText);
-//     // delay(500);
-//   }
-//   String connectedText = "Connected to " + String(ssid);
-//   Serial.println(connectedText);
-//   DrawTextCentered (connectedText);
-//   // espDelay(2000);
-// }
+    btn2.setPressedHandler([](Button2 & b) {
+        btnCick = false;
+        Serial.println("btn press wifi scan");
+        // wifi_scan();
+    });
+}
 
+void button_loop()
+{
+    btn1.loop();
+    btn2.loop();
+}
+
+// Returns Voltage as a Double
 double GetVoltage () {
-  // static uint64_t timeStamp = 0;
-  // if (millis() - timeStamp > 1000) {
-  //     timeStamp = millis();
-      uint16_t v = analogRead(ADC_PIN);
-      float battery_voltage = ((float)v / 4095.0) * 2.0 * 3.3 * (vref / 1000.0);
-      String voltage = "Voltage :" + String(battery_voltage) + "V";
-      // tft.fillScreen(TFT_BLACK);
-      // tft.setTextColor(TFT_RED);
-      // tft.drawString( voltage ,  0 , SCREEN_HEIGHT );
-      return battery_voltage;
-  // }
-  // return 9999;
+    uint16_t v = analogRead(ADC_PIN);
+    float battery_voltage = ((float)v / 4095.0) * 2.0 * 3.3 * (vref / 1000.0);
+    // String voltage = "Voltage :" + String(battery_voltage) + "V";
+    return battery_voltage;
 }
 
 //! Long time delay, it is recommended to use shallow sleep, which can effectively reduce the current consumption
@@ -284,6 +310,10 @@ void UpdateStatus(MillisTimer &mt) {
     Serial.println("No HTTP for some reason");
     // ConnectToNetwork();
   }
+}
+
+void SetDisplayToSleepExpired(MillisTimer &mt) {
+  SetDisplayToSleep();
 }
 
 void SetTeamValuesFromJson (String jsonVal) {
@@ -460,10 +490,37 @@ void DisplayWinnerScreen (String teamWinner, const char *ElapsedGameTimeFormatte
   tft.setFreeFont(&FreeSans9pt7b);
   tft.pushImage(SCREEN_WIDTH * .25 , 0,  41, 110, AWinnerIsYou);
   tft.drawString("A WINNER IS " + teamWinner + "!", SCREEN_WIDTH * .025 , SCREEN_HEIGHT * .9);
-  tft.drawString("Time - " + String(ElapsedGameTimeFormatted), SCREEN_WIDTH * .60 , SCREEN_HEIGHT * .35 );
+  tft.drawString("Time - " + String(ElapsedGameTimeFormatted), SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .35 );
   tft.drawString(winningTeam, SCREEN_WIDTH * .60 , SCREEN_HEIGHT * .50 );
   tft.drawString(losingTeam, SCREEN_WIDTH * .60 , SCREEN_HEIGHT * .65 );
+  postGameTimer.start();
   while (true) {
-    espDelay(99999);
+    postGameTimer.run();
   }
+}
+
+void SetDisplayToSleep() {
+  int r = digitalRead(TFT_BL);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  for (int i = 0 ; i < 3 ; i++) {
+    for (auto it = begin(MarioSleepGif); it != end(MarioSleepGif); ++it)
+    {
+        tft.pushImage( (tft.width() - 177 ) / 2, 0, 177, 135, *it);
+        delay(30);
+    }
+  }        
+  tft.drawString("Press again to wake up",  tft.width() / 2, 5 );
+  espDelay(6000);
+  digitalWrite(TFT_BL, !r);
+
+  tft.writecommand(TFT_DISPOFF);
+  tft.writecommand(TFT_SLPIN);
+  //After using light sleep, you need to disable timer wake, because here use external IO port to wake up
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+  // esp_sleep_enable_ext1_wakeup(GPIO_SEL_35, ESP_EXT1_WAKEUP_ALL_LOW);
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_35, 0);
+  delay(200);
+  esp_deep_sleep_start();
 }
