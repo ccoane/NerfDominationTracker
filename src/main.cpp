@@ -49,6 +49,12 @@
 #define ADC_PIN 34
 #define BUTTON_1 35
 #define BUTTON_2 0
+#define BUTTON_RED 12
+#define BUTTON_BLUE 13
+
+#define RED_TEAM "Red"
+#define BLUE_TEAM "Blue"
+
 
 // Supposed dimensions
 #define SCREEN_HEIGHT 135
@@ -59,6 +65,8 @@ int pointsToWin = 20;
 TFT_eSPI tft = TFT_eSPI(SCREEN_HEIGHT, SCREEN_WIDTH);
 Button2 btn1(BUTTON_1);
 Button2 btn2(BUTTON_2);
+Button2 btnRed(BUTTON_RED);
+Button2 btnBlue(BUTTON_BLUE);
 
 auto MarioSleepGif = { MarioSleep_00,MarioSleep_01,MarioSleep_02,MarioSleep_03,MarioSleep_04,MarioSleep_05,MarioSleep_06,MarioSleep_07,MarioSleep_08,MarioSleep_09,MarioSleep_10,MarioSleep_11 };
 
@@ -83,6 +91,9 @@ String baseUrl = "http://nerf-data-api-dfw.herokuapp.com/koth";
 // String baseUrl = "http://192.168.10.10:3000/koth";
 String urlStatus = "/status";
 String urlStopTimers = "/stopTimers";
+String urlStartTeamTimer = "/startTimer";
+const String urlStartTeamTimerFull = baseUrl + urlStartTeamTimer;
+const String urlStopTimersFull = baseUrl + urlStopTimers;
 
 struct JsonTeamStruct {
   const char* teamName = ""; // "Red"
@@ -93,28 +104,38 @@ struct JsonTeamStruct {
 String elapsedGameTime = "";
 const char* ElapsedGameTimeFormatted = "";
 
+String TeamToProcess = "";
+
 #define sizeOfTeamsAllowed 2
 JsonTeamStruct teams[sizeOfTeamsAllowed];
+JsonTeamStruct teamsTemp[sizeOfTeamsAllowed];
 
 MillisTimer statusTimer = MillisTimer(500);
-MillisTimer postGameTimer = MillisTimer(60000);
+MillisTimer postGameTimer = MillisTimer(30000);
+
+TaskHandle_t ButtonLoopTaskHandle;
 
 ////////////////////////////////////////////////////////  Function Declerations  //////////////////////////////////////////////////////// 
 void ConnectToNetwork(); 
 double GetVoltage();
 void espDelay(int ms);
-void button_init();
-void button_loop();
+void CreateAsyncSerialTask();
+void SetButtonDefaults();
+void ButtonLoopTask(void * parameter);
+void ButtonLoop();
 
 void DrawTextCentered(String text);
 void UpdateStatus(MillisTimer &mt);
 void SetDisplayToSleepExpired(MillisTimer &mt);
 void UpdateDisplay();
 void SetTeamValuesFromJson (String jsonVal);
-uint16_t GetTeamColor (const char *teamName, bool isForProgressBar);
+uint16_t GetTeamColor (String teamName, bool isForProgressBar);
 void StartWifiConfigManager() ;
 void DisplayWinnerScreen (String teamWinner, const char *ElapsedGameTimeFormatted);
 void SetDisplayToSleep();
+void SendTeamTimerButtonPress(String team, int retries);
+void StartConfigPortal();
+void StopTimers();
 
 ////////////////////////////////////////////////////////  Setup & Loop  //////////////////////////////////////////////////////// 
 
@@ -131,10 +152,10 @@ void setup() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("Domination", 140, 70);
   tft.drawString("Tracker", 140, 100);
-  button_init();
+  SetButtonDefaults();
   for (int i = 0 ; i < 1500 ; i ++) {
-    Serial.println("checking button");
-    button_loop();
+    // Serial.println("checking button");
+    ButtonLoop();
   }
 
   DrawTextCentered("Starting");
@@ -144,12 +165,17 @@ void setup() {
   statusTimer.expiredHandler(UpdateStatus);
   statusTimer.start();
   postGameTimer.expiredHandler(SetDisplayToSleepExpired);
+  CreateAsyncSerialTask();
   tft.fillScreen(TFT_BLACK);
 }
  
 void loop() {
+  // ButtonLoop();
+  if (TeamToProcess != "") {
+    SendTeamTimerButtonPress(TeamToProcess, 5);
+    TeamToProcess = "";
+  }
   statusTimer.run();
-  button_loop();
 }
 
 ////////////////////////////////////////////////////////  Functions Implementations //////////////////////////////////////////////////////// 
@@ -165,6 +191,16 @@ void StartWifiConfigManager() {
   tft.drawString(apStationSSID, SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .20);
 
   ESP_WiFiManager ESP_wifiManager;
+
+  if (btnCick) {
+    tft.fillScreen(TFT_BLACK);
+    tft.drawString("Connect to AP:", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .00);
+    tft.drawString(apStationSSID, SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .20);
+    tft.drawString("Manual WiFi Config", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .50);
+    tft.drawString("is Activated", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .75);
+    StartConfigPortal();
+    return;
+  }
   
   Router_SSID = ESP_wifiManager.WiFi_SSID();
   Router_Pass = ESP_wifiManager.WiFi_Pass();
@@ -206,13 +242,6 @@ void StartWifiConfigManager() {
   if (WiFi.status() == WL_CONNECTED && !btnCick) {
     return;
   } else {
-    if (btnCick) {
-      tft.fillScreen(TFT_BLACK);
-      tft.drawString("Connect to AP:", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .00);
-      tft.drawString(apStationSSID, SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .20);
-      tft.drawString("Manual WiFi Config", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .50);
-      tft.drawString("is Activated", SCREEN_WIDTH * .50 , SCREEN_HEIGHT * .75);
-    }
     if (Router_SSID != "")
     {
       ESP_wifiManager.setConfigPortalTimeout(60); //If no access point name has been previously entered disable timeout.
@@ -233,7 +262,15 @@ void StartWifiConfigManager() {
   }
 }
 
-void button_init()
+void StartConfigPortal() {
+  ESP_WiFiManager ESP_wifiManager;
+  if (!ESP_wifiManager.startConfigPortal()) 
+    Serial.println("Not connected to WiFi but continuing anyway.");
+  else 
+    Serial.println("WiFi connected...yeey :)");
+}
+
+void SetButtonDefaults()
 {
     btn1.setLongClickHandler([](Button2 & b) {
         btnCick = false;
@@ -248,16 +285,49 @@ void button_init()
     });
 
     btn2.setPressedHandler([](Button2 & b) {
-        btnCick = false;
+        btnCick = true;
         Serial.println("btn press wifi scan");
         // wifi_scan();
     });
+    
+    btnRed.setPressedHandler([](Button2 & b) {
+      btnCick = true;
+      // SendTeamTimerButtonPress(RED_TEAM);
+      TeamToProcess = RED_TEAM;
+    });
+
+    btnBlue.setPressedHandler([](Button2 & b) {
+      btnCick = true;
+      // SendTeamTimerButtonPress(BLUE_TEAM);
+      TeamToProcess = BLUE_TEAM;
+    });
 }
 
-void button_loop()
+void ButtonLoopTask(void * parameter) {
+  while(true) {
+    ButtonLoop();
+  }
+}
+
+void ButtonLoop()
 {
+    btnRed.loop();
+    btnBlue.loop();
     btn1.loop();
     btn2.loop();
+}
+
+void CreateAsyncSerialTask()
+{
+    // Set data fetching on Core 0 which leaves UI updates on Core 1
+    xTaskCreatePinnedToCore(
+      ButtonLoopTask, /* Function to implement the task */
+      "ButtonLoopTaskOnCore0", /* Name of the task */
+      10000,  /* Stack size in words */
+      NULL,  /* Task input parameter */
+      0,  /* Priority of the task */
+      &ButtonLoopTaskHandle,  /* Task handle. */
+      0); /* Core where the task should run */
 }
 
 // Returns Voltage as a Double
@@ -288,7 +358,7 @@ void UpdateStatus(MillisTimer &mt) {
   if (WiFi.status() == WL_CONNECTED) { //Check the current connection status
   
     String fullUrl = baseUrl + urlStatus;
-    Serial.println(fullUrl);
+    // Serial.println(fullUrl);
     http.begin(fullUrl);
     int httpCode = http.GET();                                        //Make the request
  
@@ -345,15 +415,22 @@ void SetTeamValuesFromJson (String jsonVal) {
   }
 
   if (winningTeam.length() > 0) {
+    // Stop Status Timer and kill the Button Task on Core 0 as they are no longer needed.
+    statusTimer.stop();
+    vTaskSuspend(ButtonLoopTaskHandle);
+    vTaskDelete(ButtonLoopTaskHandle);
+    StopTimers();
     DisplayWinnerScreen(winningTeam, ElapsedGameTimeFormatted);
   }
 }
 
 void UpdateDisplay() {
 
+  auto _teams = teams;
+
   // Voltage
   double voltage = GetVoltage();
-  if (voltage > 3.7) {
+  if (voltage > 3.2) {
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
   } else {
     tft.setTextColor(TFT_RED, TFT_BLACK);
@@ -385,7 +462,6 @@ void UpdateDisplay() {
   tft.drawString( signalStrength , SCREEN_WIDTH / 2 , SCREEN_HEIGHT * .05 );
 
   // Team Info
-  auto _teams = teams;
   for (int i =0 ; i < 2 ; i++){
 
     String teamName = _teams[i].teamName;
@@ -434,6 +510,9 @@ void UpdateDisplay() {
       padding = tft.textWidth("R", GFXFF); // get the width of the text in pixels
       tft.setTextPadding(padding);
       tft.drawString( String(_teams[i].teamName[0]) , SCREEN_WIDTH  * .88 , ( SCREEN_HEIGHT * .45 ) + (i * 32 ) );
+    } else {
+      // Serial.println("What garbage did I just read?");
+      // Serial.println(_teams[i].teamName);
     }
   }
 
@@ -449,16 +528,52 @@ void UpdateDisplay() {
   tft.drawString( bottomRowTextp2 , SCREEN_WIDTH *.5 , SCREEN_HEIGHT );
 }
 
-uint16_t GetTeamColor (const char *teamName, bool isForProgressBar) {
-  std::string cstr;
-  cstr.append(teamName);
-  if (cstr.find("Red") != std::string::npos) {
+void SendTeamTimerButtonPress(String team, int retries) {
+  if (WiFi.status() == WL_CONNECTED) { //Check the current connection status
+
+    String fullUrl = urlStartTeamTimerFull + "/" + team;
+    Serial.println(fullUrl);
+    http.begin(fullUrl);
+    int httpCode = http.GET();                                        //Make the request
+
+    if (httpCode > 0) { //Check for the returning code
+      Serial.println("Sent Team Timer: " + String(team));
+    } else {
+      retries = retries - 1;
+      if (retries <= 0) {
+        Serial.println("WARNING: Something wrong with sending Button Press!");
+        return;
+      }
+      Serial.println("Retrying to send button press");
+      SendTeamTimerButtonPress(team, retries);
+    }
+  }
+}
+
+void StopTimers() {
+  if (WiFi.status() == WL_CONNECTED) { //Check the current connection status
+
+    String fullUrl = urlStopTimersFull;
+    Serial.println(fullUrl);
+    http.begin(fullUrl);
+    int httpCode = http.GET();                                        //Make the request
+
+    if (httpCode > 0) { //Check for the returning code
+      Serial.printf("Stopped Timers!");
+    } else {
+      Serial.println("Failed to stop timers.");
+    }
+  }
+}
+
+uint16_t GetTeamColor (String teamName, bool isForProgressBar) {
+  if (teamName == RED_TEAM) {
     if (isForProgressBar) {
       return TFT_RED;
     } else {
       return TFT_MAROON;
     }
-  } else if (cstr.find("Blue") != std::string::npos) {
+  } else if (teamName == BLUE_TEAM) {
     if (isForProgressBar) {
       return TFT_BLUE;
     } else {
@@ -500,10 +615,14 @@ void DisplayWinnerScreen (String teamWinner, const char *ElapsedGameTimeFormatte
 }
 
 void SetDisplayToSleep() {
+  Serial.println("Putting device to sleep");
+  statusTimer.stop();
+  delay(2000);
   int r = digitalRead(TFT_BL);
-  tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
+  tft.fillScreen(TFT_BLACK);
+  Serial.println("before iterator");
   for (int i = 0 ; i < 3 ; i++) {
     for (auto it = begin(MarioSleepGif); it != end(MarioSleepGif); ++it)
     {
@@ -511,7 +630,8 @@ void SetDisplayToSleep() {
         delay(30);
     }
   }        
-  tft.drawString("Press again to wake up",  tft.width() / 2, 5 );
+  Serial.println("after iterator");
+  tft.drawString("Going into Deep Sleep",  tft.width() / 2, 5 );
   espDelay(6000);
   digitalWrite(TFT_BL, !r);
 
