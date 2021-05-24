@@ -518,11 +518,10 @@ void UpdateDisplay() {
 
   // Game Mode Info Bottom Bar
   tft.setTextDatum(BC_DATUM);
-  padding = tft.textWidth("999 Points to Win | Domination", GFXFF); // get the width of the text in pixels
-  tft.setTextPadding(padding);
   tft.setFreeFont(&GothamLight9pt7b);
-  tft.setTextColor(TFT_WHITE);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
   String bottomRowTextp1 = String(pointsToWin) + " Points to Win";
+  tft.setTextPadding(tft.textWidth(bottomRowTextp1) + 30);
   tft.drawString( bottomRowTextp1 , SCREEN_WIDTH *.5 , SCREEN_HEIGHT * .86 );
   String bottomRowTextp2 = "Domination";
   tft.drawString( bottomRowTextp2 , SCREEN_WIDTH *.5 , SCREEN_HEIGHT );
