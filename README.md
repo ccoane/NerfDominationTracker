@@ -1,6 +1,6 @@
 # Nerf Domination Tracker
 
-[![Video](https://img.youtube.com/vi/8_mOT_Istnk/0.jpg)](https://www.youtube.com/watch?v=8_mOT_Istnk)
+![IMG](ReadmeMedia/IMG_20210523_214103_1.jpg?raw=true "IMG")
 
 ## Hardware:
 * TTGO TDisplay (Arduino-based Microcontroller)
