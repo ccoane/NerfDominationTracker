@@ -15,7 +15,6 @@
 ## Setup:
 * Install Visual Studio Code (VS Code)
 * Install the PlatformIO Extension in VS Code
-* Install [HWInfo v6.4.2](https://www.fosshub.com/HWiNFO-old.html?dwl=hwi_642.exe)
 * Download and install the [CP210x USB to UART Driver](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers)
 * Open the project in VS Code and Build the project.
 * Navigate to the TFT_eSPI Library folder in your Project directory
